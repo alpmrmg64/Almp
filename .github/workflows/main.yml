@@ -6,7 +6,7 @@ on:
 jobs:
   secure-rdp:
     runs-on: windows-2022
-    timeout-minutes: 350
+    timeout-minutes: 355
 
     steps:
       - name: Configure Core RDP Settings
@@ -31,7 +31,7 @@ jobs:
 
       - name: Create RDP User with Fixed Password
         run: |
-          $password = "MR.English2008"
+          $password = "Admin773232011"
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
           if (-not (Get-LocalUser -Name "RDP" -ErrorAction SilentlyContinue)) {
               New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
@@ -88,6 +88,7 @@ jobs:
           Write-Host "TCP connectivity successful!"
 
       - name: Maintain Connection + Watch RDP User
+        timeout-minutes: 330
         run: |
           Write-Host "`n=== RDP ACCESS ==="
           Write-Host "Address: $env:TAILSCALE_IP"
@@ -131,3 +132,11 @@ jobs:
               Write-Host "[$(Get-Date)] RDP Active - Use Ctrl+C in workflow to terminate"
               Start-Sleep -Seconds 300
           }
+
+      - name: Save Project to Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: my-project-backup
+          path: C:\Users\RDP\Desktop\MyProject
+          if-no-files-found: warn
