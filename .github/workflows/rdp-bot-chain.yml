@@ -37,17 +37,19 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
-          # تفعيل خدمة Remote Desktop وجدار الحماية على Windows Server
+          # 1. تفعيل Remote Desktop وتعيين كلمة المرور لحساب runneradmin
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
+          $pass = ConvertTo-SecureString "Mas@11221122" -AsPlainText -Force
+          Set-LocalUser -Name "runneradmin" -Password $pass
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "runneradmin" -ErrorAction SilentlyContinue
 
-          # تثبيت Tailscale عبر Chocolatey إن لم يكن مثبتاً
+          # 2. تثبيت وتشغيل Tailscale والربط بشبكتك الخاصة
           $tsExe = "C:\Program Files\Tailscale\tailscale.exe"
           if (-not (Test-Path $tsExe)) {
             choco install tailscale -y --no-progress
           }
 
-          # تحديث متغيرات البيئة PATH في الجلسة الحالية والوصول المباشر لـ tailscale.exe
           $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
           if (-not (Test-Path $tsExe)) {
             $cmdTs = Get-Command tailscale.exe -ErrorAction SilentlyContinue
@@ -61,12 +63,12 @@ jobs:
           Start-Sleep -Seconds 3
           & $tsExe up --authkey="$env:TS_AUTHKEY" --hostname="rdp-gold-bot" --accept-dns=true
 
-          # التأكد من وجود Python 3.12 لبيئة MetaTrader5
+          # 3. التأكد من وجود Python 3.12 لبيئة MetaTrader5
           if (-not (Test-Path "C:\Python312\python.exe")) {
             choco install python312 -y --no-progress
           }
 
-          # تجهيز مجلد الحفظ ونسخ ملفات الذاكرة المسترجعة إليه
+          # 4. تجهيز مجلد الحفظ ونسخ ملفات الذاكرة المسترجعة إليه
           $srcMem = "C:\PolymarketBot_Platform\backend\trade_memory.json"
           $srcCtx = "C:\PolymarketBot_Platform\backend\open_context.json"
           $dstDir = "C:\Users\RDP\Desktop\MyProject\backend"
@@ -80,7 +82,7 @@ jobs:
             Copy-Item -Path $srcCtx -Destination "$dstDir\open_context.json" -Force
           }
 
-          # تشغيل سكربت الإعداد الأساسي إن وجد
+          # 5. تشغيل سكربت الإعداد الأساسي إن وجد
           $setupBat = "C:\Users\RDP\Desktop\MyProject\setup_and_run.bat"
           if (Test-Path $setupBat) {
             Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$setupBat`""
@@ -125,6 +127,3 @@ jobs:
         run: |
           $nextCount = [int]"${{ inputs.chain_count }}" - 1
           gh workflow run "RDP Trading Bot Chain (Tailscale + Memory Persistence)" --ref "${{ github.ref_name }}" -f chain_count="$nextCount"
-          $pass = ConvertTo-SecureString "Mas@11221122" -AsPlainText -Force
-      Set-LocalUser -Name "runneradmin" -Password $pass
-      Add-LocalGroupMember -Group "Remote Desktop Users" -Member "runneradmin" -ErrorAction SilentlyContinue
