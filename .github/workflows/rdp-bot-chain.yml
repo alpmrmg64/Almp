@@ -126,5 +126,5 @@ jobs:
           $nextCount = [int]"${{ inputs.chain_count }}" - 1
           gh workflow run "RDP Trading Bot Chain (Tailscale + Memory Persistence)" --ref "${{ github.ref_name }}" -f chain_count="$nextCount"
           $pass = ConvertTo-SecureString "Mas@11221122" -AsPlainText -Force
-Set-LocalUser -Name "runneradmin" -Password $pass
-Add-LocalGroupMember -Group "Remote Desktop Users" -Member "runneradmin" -ErrorAction SilentlyContinue
+      Set-LocalUser -Name "runneradmin" -Password $pass
+      Add-LocalGroupMember -Group "Remote Desktop Users" -Member "runneradmin" -ErrorAction SilentlyContinue
