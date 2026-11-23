@@ -1,5 +1,9 @@
 name: RDP Trading Bot Chain (Tailscale + Memory Persistence)
 
+permissions:
+  contents: read
+  actions: write
+
 on:
   workflow_dispatch:
     inputs:
@@ -8,13 +12,12 @@ on:
         required: false
         default: "1"
   schedule:
-    # تشغيل تلقائي كل 6 ساعات (يمكن تعديله حسب رصيد دقائق GitHub Actions)
     - cron: "0 */6 * * *"
 
 jobs:
   run-rdp-bot:
     runs-on: windows-2022
-    timeout-minutes: 350 # ~5.8 ساعات لتفادي القطع المفاجئ قبل حد 6 ساعات
+    timeout-minutes: 350
 
     steps:
       - name: Checkout repository
@@ -32,45 +35,75 @@ jobs:
         env:
           TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
         run: |
-          # تثبيت وتشغيل Tailscale والربط بشبكتك الخاصة
-          if (-not (Get-Command tailscale -ErrorAction SilentlyContinue)) {
-            choco install tailscale -y
+          $ErrorActionPreference = "Stop"
+
+          # تفعيل خدمة Remote Desktop وجدار الحماية على Windows Server
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
+
+          # تثبيت Tailscale عبر Chocolatey إن لم يكن مثبتاً
+          $tsExe = "C:\Program Files\Tailscale\tailscale.exe"
+          if (-not (Test-Path $tsExe)) {
+            choco install tailscale -y --no-progress
           }
+
+          # تحديث متغيرات البيئة PATH في الجلسة الحالية والوصول المباشر لـ tailscale.exe
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+          if (-not (Test-Path $tsExe)) {
+            $cmdTs = Get-Command tailscale.exe -ErrorAction SilentlyContinue
+            if ($cmdTs) { $tsExe = $cmdTs.Source }
+          }
+          if (-not (Test-Path $tsExe)) {
+            throw "tailscale.exe not found after installation."
+          }
+
           Start-Service tailscaled -ErrorAction SilentlyContinue
-          tailscale up --authkey="$env:TS_AUTHKEY" --hostname="rdp-gold-bot" --accept-dns=true
+          Start-Sleep -Seconds 3
+          & $tsExe up --authkey="$env:TS_AUTHKEY" --hostname="rdp-gold-bot" --accept-dns=true
 
           # التأكد من وجود Python 3.12 لبيئة MetaTrader5
           if (-not (Test-Path "C:\Python312\python.exe")) {
-            choco install python312 -y
+            choco install python312 -y --no-progress
           }
 
-          # نسخ ملفات الذاكرة المسترجعة إلى مجلد الحفظ أيضاً إن وجدت
+          # تجهيز مجلد الحفظ ونسخ ملفات الذاكرة المسترجعة إليه
           $srcMem = "C:\PolymarketBot_Platform\backend\trade_memory.json"
           $srcCtx = "C:\PolymarketBot_Platform\backend\open_context.json"
           $dstDir = "C:\Users\RDP\Desktop\MyProject\backend"
-          if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Path $dstDir -Force | Out-Null }
-          if (Test-Path $srcMem) { Copy-Item $srcMem -Destination "$dstDir\trade_memory.json" -Force }
-          if (Test-Path $srcCtx) { Copy-Item $srcCtx -Destination "$dstDir\open_context.json" -Force }
+          if (-not (Test-Path $dstDir)) {
+            New-Item -ItemType Directory -Path $dstDir -Force | Out-Null
+          }
+          if (Test-Path $srcMem) {
+            Copy-Item -Path $srcMem -Destination "$dstDir\trade_memory.json" -Force
+          }
+          if (Test-Path $srcCtx) {
+            Copy-Item -Path $srcCtx -Destination "$dstDir\open_context.json" -Force
+          }
 
-          # تشغيل سكربت الإعداد الأساسي الخاص بك إن وجد
-          if (Test-Path "$dstDir\..\setup_and_run.bat") {
-            Start-Process cmd -ArgumentList "/c", "`"$dstDir\..\setup_and_run.bat`""
+          # تشغيل سكربت الإعداد الأساسي إن وجد
+          $setupBat = "C:\Users\RDP\Desktop\MyProject\setup_and_run.bat"
+          if (Test-Path $setupBat) {
+            Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$setupBat`""
           }
 
       - name: Keep RDP session alive and sync memory before timeout
         shell: pwsh
         run: |
-          # إبقاء الجلسة نشطة لمدة ~5 ساعات و35 دقيقة ثم مزامنة الذاكرة قبل الإغلاق
           $maxSeconds = 335 * 60
           $elapsed = 0
           while ($elapsed -lt $maxSeconds) {
             Start-Sleep -Seconds 60
             $elapsed += 60
-            if (Test-Path "C:\PolymarketBot_Platform\backend\trade_memory.json") {
-              Copy-Item "C:\PolymarketBot_Platform\backend\trade_memory.json" -Destination "C:\Users\RDP\Desktop\MyProject\backend\trade_memory.json" -Force -ErrorAction SilentlyContinue
+
+            $srcMem = "C:\PolymarketBot_Platform\backend\trade_memory.json"
+            $srcCtx = "C:\PolymarketBot_Platform\backend\open_context.json"
+            $dstDir = "C:\Users\RDP\Desktop\MyProject\backend"
+
+            if (Test-Path $srcMem) {
+              Copy-Item -Path $srcMem -Destination "$dstDir\trade_memory.json" -Force -ErrorAction SilentlyContinue
             }
-            if (Test-Path "C:\PolymarketBot_Platform\backend\open_context.json") {
-              Copy-Item "C:\PolymarketBot_Platform\backend\open_context.json" -Destination "C:\Users\RDP\Desktop\MyProject\backend\open_context.json" -Force -ErrorAction SilentlyContinue
+            if (Test-Path $srcCtx) {
+              Copy-Item -Path $srcCtx -Destination "$dstDir\open_context.json" -Force -ErrorAction SilentlyContinue
             }
           }
 
@@ -91,4 +124,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $nextCount = [int]"${{ inputs.chain_count }}" - 1
-          gh workflow run "RDP Trading Bot Chain (Tailscale + Memory Persistence)" -f chain_count="$nextCount"
+          gh workflow run "RDP Trading Bot Chain (Tailscale + Memory Persistence)" --ref "${{ github.ref_name }}" -f chain_count="$nextCount"
